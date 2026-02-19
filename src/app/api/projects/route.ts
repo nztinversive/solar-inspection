@@ -4,8 +4,13 @@ import type { Project } from '@/lib/types';
 import { v4 as uuidv4 } from 'uuid';
 
 export async function GET() {
-  const all = await projects.getAll();
-  return NextResponse.json(all);
+  try {
+    const all = await projects.getAll();
+    return NextResponse.json(all);
+  } catch (error) {
+    console.error('Failed to fetch projects:', error);
+    return NextResponse.json({ error: 'Failed to fetch projects' }, { status: 500 });
+  }
 }
 
 export async function POST(req: Request) {

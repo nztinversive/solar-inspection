@@ -11,38 +11,57 @@ export default function HomePage() {
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showNewModal, setShowNewModal] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchProjects = useCallback(async () => {
     try {
+      setError(null);
       const res = await fetch('/api/projects');
+      if (!res.ok) throw new Error(`Failed to load projects (${res.status})`);
       const data = await res.json();
-      setProjects(data);
-    } catch { /* ignore */ }
+      if (data.error) throw new Error(data.error);
+      setProjects(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to fetch projects:', err);
+      setError(err instanceof Error ? err.message : 'Failed to load projects');
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => { fetchProjects(); }, [fetchProjects]);
 
   const handleCreateProject = async (data: { name: string; location: string; date: string; panelCount: number }) => {
-    const res = await fetch('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-    const project = await res.json();
-    setProjects(prev => [project, ...prev]);
-    setSelectedProject(project);
-    setShowNewModal(false);
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to create project');
+      const project = await res.json();
+      if (project.error) throw new Error(project.error);
+      setProjects(prev => [project, ...prev]);
+      setSelectedProject(project);
+      setShowNewModal(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to create project');
+    }
   };
 
   const handleDeleteProject = async (id: string) => {
-    await fetch('/api/projects', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id }),
-    });
-    setProjects(prev => prev.filter(p => p.id !== id));
-    if (selectedProject?.id === id) setSelectedProject(null);
+    if (!confirm('Delete this inspection? This cannot be undone.')) return;
+    try {
+      const res = await fetch('/api/projects', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+      if (!res.ok) throw new Error('Failed to delete');
+      setProjects(prev => prev.filter(p => p.id !== id));
+      if (selectedProject?.id === id) setSelectedProject(null);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to delete project');
+    }
   };
 
   const handleProjectUpdate = (updated: Project) => {
@@ -78,8 +97,19 @@ export default function HomePage() {
       </header>
 
       {loading ? (
-        <div className="flex items-center justify-center py-20">
+        <div className="flex flex-col items-center justify-center py-20">
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-[#F59E0B] border-t-transparent" />
+          <p className="mt-3 text-sm text-[#A0A0A0]">Loading inspections...</p>
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] py-16">
+          <p className="text-lg text-[#EF4444]">⚠ {error}</p>
+          <button
+            onClick={() => { setLoading(true); fetchProjects(); }}
+            className="mt-4 rounded-lg border border-[#2A2A2A] px-4 py-2 text-sm text-[#A0A0A0] transition hover:border-[#F59E0B] hover:text-[#F5F5F5]"
+          >
+            Retry
+          </button>
         </div>
       ) : (
         <ProjectList

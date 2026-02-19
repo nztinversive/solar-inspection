@@ -29,10 +29,15 @@ export default function InspectionView({ project, onBack, onProjectUpdate }: Ins
   const [selectedDefect, setSelectedDefect] = useState<Defect | null>(null);
   const [activeTab, setActiveTab] = useState<'upload' | 'results'>('upload');
 
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   const fetchUploads = useCallback(async () => {
-    const res = await fetch(`/api/upload?projectId=${project.id}`);
-    const data = await res.json();
-    setUploads(data);
+    try {
+      const res = await fetch(`/api/upload?projectId=${project.id}`);
+      if (!res.ok) throw new Error('Failed to load uploads');
+      const data = await res.json();
+      if (!Array.isArray(data)) { setUploads([]); return; }
+      setUploads(data);
 
     // If project is complete and has processed uploads, reconstruct results
     if (project.status === 'complete' && Array.isArray(data)) {
@@ -50,6 +55,10 @@ export default function InspectionView({ project, onBack, onProjectUpdate }: Ins
         setActiveTab('results');
       }
     }
+    } catch (err) {
+      console.error('Failed to fetch uploads:', err);
+      setUploadError('Failed to load uploaded images');
+    }
   }, [project.id, project.status, project.healthScore]);
 
   useEffect(() => { fetchUploads(); }, [fetchUploads]);
@@ -59,30 +68,49 @@ export default function InspectionView({ project, onBack, onProjectUpdate }: Ins
     if (!files || files.length === 0) return;
 
     setUploading(true);
+    setUploadError(null);
+    let successCount = 0;
+
     for (const file of Array.from(files)) {
-      const reader = new FileReader();
-      const dataUrl = await new Promise<string>((resolve) => {
-        reader.onload = () => resolve(reader.result as string);
-        reader.readAsDataURL(file);
-      });
+      try {
+        // Validate file size (max 10MB for base64 storage)
+        if (file.size > 10 * 1024 * 1024) {
+          setUploadError(`${file.name} exceeds 10MB limit — skipped`);
+          continue;
+        }
 
-      const isThermal = file.name.toLowerCase().includes('thermal') ||
-        file.name.toLowerCase().includes('flir') ||
-        file.name.toLowerCase().includes('ir_');
+        const reader = new FileReader();
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = () => reject(new Error('Failed to read file'));
+          reader.readAsDataURL(file);
+        });
 
-      await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          projectId: project.id,
-          filename: file.name,
-          type: isThermal ? 'thermal' : 'rgb',
-          dataUrl,
-        }),
-      });
+        const isThermal = file.name.toLowerCase().includes('thermal') ||
+          file.name.toLowerCase().includes('flir') ||
+          file.name.toLowerCase().includes('ir_');
+
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            projectId: project.id,
+            filename: file.name,
+            type: isThermal ? 'thermal' : 'rgb',
+            dataUrl,
+          }),
+        });
+
+        if (!res.ok) throw new Error(`Upload failed for ${file.name}`);
+        successCount++;
+      } catch (err) {
+        console.error(`Upload error for ${file.name}:`, err);
+        setUploadError(err instanceof Error ? err.message : 'Upload failed');
+      }
     }
+
     setUploading(false);
-    fetchUploads();
+    if (successCount > 0) fetchUploads();
   };
 
   const handleAnalyze = async () => {
@@ -108,12 +136,17 @@ export default function InspectionView({ project, onBack, onProjectUpdate }: Ins
   };
 
   const handleRemoveUpload = async (uploadId: string) => {
-    await fetch('/api/upload', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ projectId: project.id, uploadId }),
-    });
-    fetchUploads();
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectId: project.id, uploadId }),
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      fetchUploads();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to remove image');
+    }
   };
 
   return (
@@ -169,6 +202,14 @@ export default function InspectionView({ project, onBack, onProjectUpdate }: Ins
       {/* Upload Tab */}
       {activeTab === 'upload' && (
         <div className="space-y-4">
+          {/* Error banner */}
+          {uploadError && (
+            <div className="flex items-center justify-between rounded-lg border border-[#EF4444]/30 bg-[#2A1714] px-4 py-3 text-sm text-[#EF4444]">
+              <span>⚠ {uploadError}</span>
+              <button onClick={() => setUploadError(null)} className="ml-2 text-[#666] hover:text-[#A0A0A0]">✕</button>
+            </div>
+          )}
+
           {/* Drop zone */}
           <label className="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-[#2A2A2A] bg-[#1A1A1A] py-12 transition hover:border-[#F59E0B]/50">
             <input
