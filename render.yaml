@@ -5,5 +5,7 @@ services:
     buildCommand: npm ci && npm run build
     startCommand: npm start
     envVars:
+      - key: PORT
+        sync: false
       - key: NODE_ENV
         value: production

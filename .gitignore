@@ -37,3 +37,7 @@ next-env.d.ts
 
 # persisted data (resets on deploy)
 /data/
+
+# YOLO model weights (too large for git — download at build time)
+/model/*.pt
+__pycache__/

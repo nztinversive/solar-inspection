@@ -2,6 +2,16 @@ import type { Defect, DefectType, DefectSeverity } from './types';
 import { v4 as uuidv4 } from 'uuid';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const YOLO_URL = process.env.YOLO_INFERENCE_URL || 'http://127.0.0.1:8765';
+
+interface YoloDetection {
+  type: DefectType;
+  severity: DefectSeverity;
+  confidence: number;
+  bbox: number[];
+  description: string;
+  remediation: string[];
+}
 
 interface DetectedDefect {
   type: DefectType;
@@ -42,12 +52,52 @@ If no defects are found, return an empty array [].
 Be specific about locations within the image. Only report defects you're confident about.
 Return ONLY valid JSON — no markdown, no explanation.`;
 
+async function tryYoloInference(
+  imageDataUrl: string,
+  uploadId: string,
+  projectId: string
+): Promise<Defect[] | null> {
+  try {
+    const res = await fetch(`${YOLO_URL}/predict`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: imageDataUrl }),
+      signal: AbortSignal.timeout(30000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const detections: YoloDetection[] = data.detections || [];
+    if (detections.length === 0) return null;
+
+    return detections.map((d): Defect => ({
+      id: uuidv4(),
+      projectId,
+      uploadId,
+      type: d.type || 'hotspot',
+      severity: d.severity || 'warning',
+      description: d.description || 'YOLO detected anomaly',
+      confidence: d.confidence || 0.5,
+      location: d.bbox ? { row: Math.floor(d.bbox[1] / 100), col: Math.floor(d.bbox[0] / 100) } : undefined,
+      remediation: d.remediation || [],
+    }));
+  } catch {
+    console.log('YOLO inference unavailable, falling back');
+    return null;
+  }
+}
+
 export async function analyzeImage(
   imageDataUrl: string,
   imageType: 'thermal' | 'rgb',
   uploadId: string,
   projectId: string
 ): Promise<Defect[]> {
+  // Try YOLO first (fastest, no API cost)
+  const yoloResults = await tryYoloInference(imageDataUrl, uploadId, projectId);
+  if (yoloResults && yoloResults.length > 0) {
+    return yoloResults;
+  }
+
   if (!OPENAI_API_KEY) {
     // Return mock defects for demo when no API key
     return generateMockDefects(uploadId, projectId, imageType);
