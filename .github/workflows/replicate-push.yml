@@ -7,7 +7,7 @@ on:
 
 jobs:
   push:
-    runs-on: ubuntu-latest-gpu  # or ubuntu-latest with CPU build
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -15,7 +15,7 @@ jobs:
         run: |
           mkdir -p model
           curl -L -o best.pt "https://github.com/nztinversive/solar-inspection/releases/download/v0.1.0-model/best.pt"
-        ls -la best.pt
+          ls -la best.pt
 
       - name: Install Cog
         run: |
