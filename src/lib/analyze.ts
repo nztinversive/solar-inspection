@@ -3,6 +3,8 @@ import { v4 as uuidv4 } from 'uuid';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const YOLO_URL = process.env.YOLO_INFERENCE_URL || 'http://127.0.0.1:8765';
+const REPLICATE_API_TOKEN = process.env.REPLICATE_API_TOKEN;
+const REPLICATE_MODEL = process.env.REPLICATE_MODEL || 'nztinversive/solar-yolo';
 
 interface YoloDetection {
   type: DefectType;
@@ -86,16 +88,82 @@ async function tryYoloInference(
   }
 }
 
+async function tryReplicateInference(
+  imageDataUrl: string,
+  uploadId: string,
+  projectId: string
+): Promise<Defect[] | null> {
+  try {
+    // Create prediction
+    const createRes = await fetch('https://api.replicate.com/v1/predictions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Token ${REPLICATE_API_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: REPLICATE_MODEL,
+        input: {
+          image: imageDataUrl,
+          confidence: 0.15,
+        },
+      }),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!createRes.ok) return null;
+    const prediction = await createRes.json();
+
+    // Poll for result
+    let result = prediction;
+    const pollUrl = prediction.urls?.get || `https://api.replicate.com/v1/predictions/${prediction.id}`;
+    for (let i = 0; i < 30; i++) {
+      if (result.status === 'succeeded') break;
+      if (result.status === 'failed' || result.status === 'canceled') return null;
+      await new Promise(r => setTimeout(r, 2000));
+      const pollRes = await fetch(pollUrl, {
+        headers: { 'Authorization': `Token ${REPLICATE_API_TOKEN}` },
+      });
+      result = await pollRes.json();
+    }
+
+    if (result.status !== 'succeeded') return null;
+    const output = typeof result.output === 'string' ? JSON.parse(result.output) : result.output;
+    const detections = output?.detections || [];
+
+    return detections.map((d: Record<string, unknown>): Defect => ({
+      id: uuidv4(),
+      projectId,
+      uploadId,
+      type: (d.class_name as string || 'hotspot').toLowerCase().replace('-', '_') as DefectType,
+      severity: (d.confidence as number) > 0.7 ? 'critical' : (d.confidence as number) > 0.4 ? 'warning' : 'info',
+      description: `Replicate YOLO: ${d.class_name} (conf: ${((d.confidence as number) * 100).toFixed(0)}%)`,
+      confidence: d.confidence as number || 0.5,
+      remediation: ['Schedule detailed inspection'],
+    }));
+  } catch {
+    console.log('Replicate inference unavailable, falling back');
+    return null;
+  }
+}
+
 export async function analyzeImage(
   imageDataUrl: string,
   imageType: 'thermal' | 'rgb',
   uploadId: string,
   projectId: string
 ): Promise<Defect[]> {
-  // Try YOLO first (fastest, no API cost)
+  // Try YOLO local server first (fastest, no API cost)
   const yoloResults = await tryYoloInference(imageDataUrl, uploadId, projectId);
   if (yoloResults && yoloResults.length > 0) {
     return yoloResults;
+  }
+
+  // Try Replicate YOLO model (cloud GPU, ~$0.01/image)
+  if (REPLICATE_API_TOKEN) {
+    const replicateResults = await tryReplicateInference(imageDataUrl, uploadId, projectId);
+    if (replicateResults && replicateResults.length > 0) {
+      return replicateResults;
+    }
   }
 
   if (!OPENAI_API_KEY) {
