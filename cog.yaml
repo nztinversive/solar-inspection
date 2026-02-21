@@ -1,6 +1,7 @@
 # Replicate Cog configuration for Solar Panel Defect Detection
 build:
   gpu: true
+  cuda: "12.1"
   python_version: "3.11"
   python_packages:
     - "ultralytics==8.4.14"
