@@ -13,21 +13,12 @@ jobs:
 
       - name: Download model weights
         run: |
-          mkdir -p model
           curl -L -o best.pt "https://github.com/nztinversive/solar-inspection/releases/download/v0.1.0-model/best.pt"
           ls -la best.pt
 
-      - name: Install Cog
-        run: |
-          sudo curl -o /usr/local/bin/cog -L https://github.com/replicate/cog/releases/latest/download/cog_$(uname -s)_$(uname -m)
-          sudo chmod +x /usr/local/bin/cog
-
-      - name: Login to Replicate
-        run: |
-          echo "${{ secrets.REPLICATE_API_TOKEN }}" | cog login --token-stdin
-
       - name: Push to Replicate
-        env:
-          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
-          COG_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
-        run: cog push r8.im/nztinversive/solar-yolo
+        uses: replicate/setup-cog@v2
+        with:
+          token: ${{ secrets.REPLICATE_API_TOKEN }}
+
+      - run: cog push r8.im/nztinversive/solar-yolo
