@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+.next/
+out/
+
+# Environment
+.env
+.env.local
+.env.production
+
+# Data files (ephemeral on Render)
+data/
+
+# YOLO model weights (too large for git)
+*.pt
+*.onnx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.log
+.npmrc

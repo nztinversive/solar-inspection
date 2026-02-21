@@ -1,0 +1,14 @@
+# Replicate Cog configuration for Solar Panel Defect Detection
+build:
+  gpu: true
+  python_version: "3.11"
+  python_packages:
+    - "ultralytics==8.4.14"
+    - "torch==2.5.1"
+    - "torchvision==0.20.1"
+    - "Pillow>=10.0.0"
+    - "numpy>=1.24.0"
+  system_packages:
+    - "libgl1-mesa-glx"
+    - "libglib2.0-0"
+predict: "predict.py:Predictor"
